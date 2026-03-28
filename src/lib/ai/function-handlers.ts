@@ -5,8 +5,9 @@
 
 import type { GeoCoordinate } from "@/lib/types/incident";
 import { Type, type FunctionDeclaration } from "@google/genai";
+import { logger } from "@/lib/logger";
 
-const MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+const MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
 /**
  * Function declarations for Gemini tool registration.
@@ -94,6 +95,163 @@ export const FUNCTION_DECLARATIONS: FunctionDeclaration[] = [
   },
 ];
 
+// ─── Shared Places API helpers ────────────────────────────────
+
+interface PlaceLocation {
+  latitude: number;
+  longitude: number;
+}
+
+interface PlaceResult {
+  name: string;
+  address: string;
+  location: PlaceLocation;
+  is_open: boolean | null;
+  phone: string | null;
+  rating: number | null;
+}
+
+/**
+ * Search via Places API (New) — `places.googleapis.com/v1/`.
+ * Returns null if the API is unavailable (not enabled, auth error, etc.)
+ * so the caller can fall through to the legacy API.
+ */
+async function searchPlacesNewApi(
+  placeType: string,
+  args: { latitude: number; longitude: number },
+  radiusMeters: number
+): Promise<PlaceResult[] | null> {
+  try {
+    const response = await fetch(
+      "https://places.googleapis.com/v1/places:searchNearby",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": MAPS_API_KEY,
+          "X-Goog-FieldMask":
+            "places.displayName,places.formattedAddress,places.location,places.currentOpeningHours,places.nationalPhoneNumber,places.rating",
+        },
+        body: JSON.stringify({
+          includedTypes: [placeType],
+          maxResultCount: 10,
+          rankPreference: "DISTANCE",
+          locationRestriction: {
+            circle: {
+              center: { latitude: args.latitude, longitude: args.longitude },
+              radius: radiusMeters,
+            },
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      logger.warn("Places API (New) failed — will try legacy", {
+        status: response.status,
+        placeType,
+        error: errorBody.slice(0, 300),
+      });
+      return null;
+    }
+
+    const data = await response.json();
+    return (data.places || []).map(
+      (p: Record<string, unknown>): PlaceResult => {
+        const displayName = p.displayName as Record<string, string> | undefined;
+        const loc = p.location as PlaceLocation | undefined;
+        const hours = p.currentOpeningHours as Record<string, boolean> | undefined;
+        return {
+          name: displayName?.text || "Unknown",
+          address: (p.formattedAddress as string) || "",
+          location: {
+            latitude: loc?.latitude || 0,
+            longitude: loc?.longitude || 0,
+          },
+          is_open: hours?.openNow ?? null,
+          phone: (p.nationalPhoneNumber as string) || null,
+          rating: (p.rating as number) || null,
+        };
+      }
+    );
+  } catch (err) {
+    logger.warn("Places API (New) exception", {
+      placeType,
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+    return null;
+  }
+}
+
+/**
+ * Fallback: legacy Nearby Search API — `maps.googleapis.com/maps/api/place/`.
+ * This uses the standard "Places API" which is more commonly enabled.
+ * Returns null on failure.
+ */
+async function searchPlacesLegacyApi(
+  placeType: string,
+  args: { latitude: number; longitude: number },
+  radiusMeters: number
+): Promise<PlaceResult[] | null> {
+  try {
+    const url = new URL(
+      "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+    );
+    url.searchParams.set("location", `${args.latitude},${args.longitude}`);
+    url.searchParams.set("radius", String(radiusMeters));
+    url.searchParams.set("type", placeType.split("|")[0]);
+    url.searchParams.set("key", MAPS_API_KEY);
+
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      logger.warn("Legacy Places API HTTP error", {
+        status: response.status,
+        placeType,
+        error: errorBody.slice(0, 300),
+      });
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+      logger.warn("Legacy Places API returned non-OK status", {
+        status: data.status,
+        placeType,
+        errorMessage: data.error_message || "",
+      });
+      return null;
+    }
+
+    return ((data.results || []) as Record<string, unknown>[]).map(
+      (p): PlaceResult => {
+        const geo = p.geometry as Record<string, unknown> | undefined;
+        const loc = geo?.location as Record<string, number> | undefined;
+        const hours = p.opening_hours as Record<string, boolean> | undefined;
+        return {
+          name: (p.name as string) || "Unknown",
+          address: (p.vicinity as string) || "",
+          location: {
+            latitude: loc?.lat || 0,
+            longitude: loc?.lng || 0,
+          },
+          is_open: hours?.open_now ?? null,
+          phone: null,
+          rating: (p.rating as number) || null,
+        };
+      }
+    );
+  } catch (err) {
+    logger.warn("Legacy Places API exception", {
+      placeType,
+      error: err instanceof Error ? err.message : "Unknown",
+    });
+    return null;
+  }
+}
+
 // ─── Handler Implementations ────────────────────────────────
 
 export async function handleSearchNearbyHospitals(args: {
@@ -102,53 +260,12 @@ export async function handleSearchNearbyHospitals(args: {
   radius_km: number;
 }): Promise<Record<string, unknown>> {
   const radiusMeters = Math.min(args.radius_km, 50) * 1000;
-  const url = "https://places.googleapis.com/v1/places:searchNearby";
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": MAPS_API_KEY,
-        "X-Goog-FieldMask":
-          "places.displayName,places.formattedAddress,places.location,places.currentOpeningHours,places.nationalPhoneNumber,places.rating",
-      },
-      body: JSON.stringify({
-        includedTypes: ["hospital"],
-        maxResultCount: 10,
-        rankPreference: "DISTANCE",
-        locationRestriction: {
-          circle: {
-            center: { latitude: args.latitude, longitude: args.longitude },
-            radius: radiusMeters,
-          },
-        },
-      }),
-    });
+  // Try Places API (New) first, fall back to legacy
+  const hospitals = await searchPlacesNewApi("hospital", args, radiusMeters)
+    ?? await searchPlacesLegacyApi("hospital", args, radiusMeters);
 
-    if (!response.ok) {
-      return { error: `Places API error: ${response.status}`, hospitals: [] };
-    }
-
-    const data = await response.json();
-    const hospitals = (data.places || []).map(
-      (p: Record<string, unknown>) => ({
-        name: (p.displayName as Record<string, string>)?.text || "Unknown",
-        address: p.formattedAddress || "",
-        location: p.location || {},
-        is_open: (p.currentOpeningHours as Record<string, boolean>)?.openNow ?? null,
-        phone: p.nationalPhoneNumber || null,
-        rating: p.rating || null,
-      })
-    );
-
-    return { hospitals, count: hospitals.length };
-  } catch (error) {
-    return {
-      error: `Failed to search hospitals: ${error instanceof Error ? error.message : "Unknown error"}`,
-      hospitals: [],
-    };
-  }
+  return { hospitals: hospitals || [], count: (hospitals || []).length };
 }
 
 export async function handleSearchNearbyShelters(args: {
@@ -157,50 +274,11 @@ export async function handleSearchNearbyShelters(args: {
   radius_km: number;
 }): Promise<Record<string, unknown>> {
   const radiusMeters = Math.min(args.radius_km, 50) * 1000;
-  const url = "https://places.googleapis.com/v1/places:searchText";
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": MAPS_API_KEY,
-        "X-Goog-FieldMask":
-          "places.displayName,places.formattedAddress,places.location,places.currentOpeningHours",
-      },
-      body: JSON.stringify({
-        textQuery: "emergency shelter evacuation center community center",
-        maxResultCount: 10,
-        locationBias: {
-          circle: {
-            center: { latitude: args.latitude, longitude: args.longitude },
-            radius: radiusMeters,
-          },
-        },
-      }),
-    });
+  const shelters = await searchPlacesNewApi("community_center", args, radiusMeters)
+    ?? await searchPlacesLegacyApi("community_center|city_hall|local_government_office", args, radiusMeters);
 
-    if (!response.ok) {
-      return { error: `Places API error: ${response.status}`, shelters: [] };
-    }
-
-    const data = await response.json();
-    const shelters = (data.places || []).map(
-      (p: Record<string, unknown>) => ({
-        name: (p.displayName as Record<string, string>)?.text || "Unknown",
-        address: p.formattedAddress || "",
-        location: p.location || {},
-        is_open: (p.currentOpeningHours as Record<string, boolean>)?.openNow ?? null,
-      })
-    );
-
-    return { shelters, count: shelters.length };
-  } catch (error) {
-    return {
-      error: `Failed to search shelters: ${error instanceof Error ? error.message : "Unknown error"}`,
-      shelters: [],
-    };
-  }
+  return { shelters: shelters || [], count: (shelters || []).length };
 }
 
 export async function handleGetEvacuationRoute(args: {
@@ -293,6 +371,19 @@ export async function handleGetWeatherConditions(args: {
       conditions: null,
     };
   }
+}
+
+export async function handleSearchNearbyFireStations(args: {
+  latitude: number;
+  longitude: number;
+  radius_km: number;
+}): Promise<Record<string, unknown>> {
+  const radiusMeters = Math.min(args.radius_km, 50) * 1000;
+
+  const fire_stations = await searchPlacesNewApi("fire_station", args, radiusMeters)
+    ?? await searchPlacesLegacyApi("fire_station", args, radiusMeters);
+
+  return { fire_stations: fire_stations || [], count: (fire_stations || []).length };
 }
 
 /**

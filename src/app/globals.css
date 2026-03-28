@@ -124,6 +124,18 @@ body::before {
 }
 
 /* ─── Accessibility ─────────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
 .skip-link {
   position: absolute;
   top: -100%;
@@ -370,8 +382,13 @@ h1, h2, h3, h4, h5, h6 {
   flex-direction: column;
   gap: var(--space-md);
   overflow-y: auto;
+  min-height: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--border-subtle) transparent;
+}
+
+.input-panel > * {
+  flex-shrink: 0;
 }
 
 @media (max-width: 900px) {
@@ -586,13 +603,19 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--accent-cyan);
 }
 
+/* ─── Results Panel ────────────────────────────────────────── */
+.results-panel {
+  overflow-y: auto;
+  min-height: 0;
+}
+
 /* ─── Map View ──────────────────────────────────────────────── */
 .map-container {
   border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border-subtle);
   position: relative;
-  min-height: 300px;
+  min-height: 0;
 }
 
 .map-container__map {

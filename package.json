@@ -6,26 +6,32 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src",
     "test": "jest --passWithNoTests",
-    "test:e2e": "playwright test"
+    "test:ci": "jest --ci --coverage",
+    "test:e2e": "playwright test",
+    "type-check": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jithujj153/RescuerGridAI.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "crisis-response",
+    "emergency-management",
+    "gemini",
+    "google-maps",
+    "cloud-run"
+  ],
+  "author": "RescueGrid AI Team",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/jithujj153/RescuerGridAI/issues"
   },
   "homepage": "https://github.com/jithujj153/RescuerGridAI#readme",
-  "description": "",
+  "description": "AI-powered crisis response copilot — turn chaotic field signals into life-saving actions",
   "dependencies": {
-    "@google-cloud/text-to-speech": "^6.4.0",
     "@google/genai": "^1.46.0",
-    "@googlemaps/js-api-loader": "^2.0.2",
     "next": "^16.2.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -34,10 +40,11 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
-    "@eslint/eslintrc": "^3.3.5",
     "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/google.maps": "^3.58.1",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

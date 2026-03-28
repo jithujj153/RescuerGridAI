@@ -18,7 +18,7 @@ export const AffectedZoneSchema = z.object({
 
 export const NewsReferenceSchema = z.object({
   title: z.string(),
-  url: z.string().url(),
+  url: z.string(),
   source: z.string(),
 });
 
@@ -26,6 +26,26 @@ export const ActionChecklistSchema = z.object({
   citizens: z.array(z.string()).min(1).max(10),
   responders: z.array(z.string()).min(1).max(10),
   city_ops: z.array(z.string()).min(1).max(10),
+});
+
+const NearbyResourceSchema = z.object({
+  name: z.string(),
+  address: z.string(),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  }),
+  is_open: z.boolean().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  rating: z.number().nullable().optional(),
+  type: z.enum(["hospital", "shelter", "fire_station"]),
+});
+
+const EvacuationRouteSchema = z.object({
+  distance_km: z.number(),
+  duration_minutes: z.number(),
+  polyline: z.string(),
+  warnings: z.array(z.string()),
 });
 
 export const IncidentAnalysisSchema = z.object({
@@ -41,6 +61,10 @@ export const IncidentAnalysisSchema = z.object({
   urgency_window: z.string(),
   related_news: z.array(NewsReferenceSchema),
   timestamp: z.string(),
+  nearby_hospitals: z.array(NearbyResourceSchema).optional(),
+  nearby_shelters: z.array(NearbyResourceSchema).optional(),
+  nearby_fire_stations: z.array(NearbyResourceSchema).optional(),
+  evacuation_routes: z.array(EvacuationRouteSchema).optional(),
 });
 
 /** Validate the analyze endpoint request body */

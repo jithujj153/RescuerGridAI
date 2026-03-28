@@ -1,10 +1,7 @@
-// ─────────────────────────────────────────────────────────────
-// POST /api/alert — Multilingual TTS alert generation
-// Uses Google Cloud Text-to-Speech API
-// ─────────────────────────────────────────────────────────────
-
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { logger } from "@/lib/logger";
+import { checkRateLimit, getRateLimitKey } from "@/lib/rate-limit";
 
 const AlertRequestSchema = z.object({
   text: z.string().min(1).max(2000),
@@ -12,7 +9,6 @@ const AlertRequestSchema = z.object({
   voiceGender: z.enum(["NEUTRAL", "MALE", "FEMALE"]).default("NEUTRAL"),
 });
 
-/** Supported languages with display names */
 export const SUPPORTED_LANGUAGES = [
   { code: "en-US", name: "English (US)" },
   { code: "en-IN", name: "English (India)" },
@@ -30,21 +26,39 @@ export const SUPPORTED_LANGUAGES = [
   { code: "kn-IN", name: "Kannada" },
 ] as const;
 
+const RATE_LIMIT = { maxRequests: 20, windowMs: 60_000 };
+
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
+
   try {
+    const rl = checkRateLimit(`alert:${getRateLimitKey(request)}`, RATE_LIMIT);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
+      );
+    }
+
     const body = await request.json();
     const validated = AlertRequestSchema.parse(body);
 
-    // Use Google Cloud TTS REST API directly
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
+      logger.error("TTS API key not configured", { requestId });
       return NextResponse.json(
-        { error: "TTS API not configured" },
+        { error: "TTS service is not configured" },
         { status: 503 }
       );
     }
 
     const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`;
+
+    logger.info("Generating TTS alert", {
+      requestId,
+      language: validated.languageCode,
+      textLength: validated.text.length,
+    });
 
     const ttsResponse = await fetch(ttsUrl, {
       method: "POST",
@@ -65,18 +79,17 @@ export async function POST(request: NextRequest) {
 
     if (!ttsResponse.ok) {
       const errorText = await ttsResponse.text();
-      console.error("TTS API error:", errorText);
+      logger.error("TTS API error", { requestId, status: ttsResponse.status, error: errorText });
       return NextResponse.json(
-        { error: "Text-to-speech failed" },
+        { error: "Text-to-speech generation failed" },
         { status: 502 }
       );
     }
 
     const ttsData = await ttsResponse.json();
-    const audioContent = ttsData.audioContent; // Base64 encoded MP3
 
     return NextResponse.json({
-      audioBase64: audioContent,
+      audioBase64: ttsData.audioContent,
       mimeType: "audio/mp3",
       language: validated.languageCode,
       text: validated.text,
@@ -89,7 +102,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.error("Alert API error:", error);
+    logger.error("Alert API error", {
+      requestId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
     return NextResponse.json(
       { error: "Failed to generate alert" },
       { status: 500 }

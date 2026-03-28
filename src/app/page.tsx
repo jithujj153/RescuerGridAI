@@ -80,7 +80,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Bottom right: Results */}
-        <div className="glass-card glass-card--elevated" style={{ overflow: "auto" }}>
+        <div className="glass-card glass-card--elevated results-panel">
           {appState === "idle" && (
             <div className="empty-state">
               <div className="empty-state__icon">🛰️</div>

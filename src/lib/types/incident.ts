@@ -44,6 +44,23 @@ export interface NewsReference {
   source: string;
 }
 
+export interface NearbyResource {
+  name: string;
+  address: string;
+  location: { latitude: number; longitude: number };
+  is_open?: boolean | null;
+  phone?: string | null;
+  rating?: number | null;
+  type: "hospital" | "shelter" | "fire_station";
+}
+
+export interface EvacuationRoute {
+  distance_km: number;
+  duration_minutes: number;
+  polyline: string;
+  warnings: string[];
+}
+
 export interface IncidentAnalysis {
   incident_id: string;
   hazard_type: HazardType;
@@ -57,6 +74,10 @@ export interface IncidentAnalysis {
   urgency_window: string;
   related_news: NewsReference[];
   timestamp: string;
+  nearby_hospitals?: NearbyResource[];
+  nearby_shelters?: NearbyResource[];
+  nearby_fire_stations?: NearbyResource[];
+  evacuation_routes?: EvacuationRoute[];
 }
 
 /** Shape of data sent from the client to the /api/analyze endpoint */

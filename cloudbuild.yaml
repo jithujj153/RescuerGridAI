@@ -1,0 +1,53 @@
+steps:
+  # Build the container image with build-time args for NEXT_PUBLIC_* vars
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "--build-arg"
+      - "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${_NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}"
+      - "--build-arg"
+      - "NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL}"
+      - "-t"
+      - "${_IMAGE}"
+      - "."
+
+  # Push to Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "${_IMAGE}"]
+
+  # Deploy to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: gcloud
+    args:
+      - "run"
+      - "deploy"
+      - "${_SERVICE_NAME}"
+      - "--image=${_IMAGE}"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+      - "--set-secrets=GEMINI_API_KEY=gemini-api-key:latest,GOOGLE_MAPS_API_KEY=maps-api-key:latest,GOOGLE_CLOUD_PROJECT_ID=gcp-project-id:latest"
+      - "--cpu-boost"
+      - "--min-instances=0"
+      - "--max-instances=10"
+      - "--memory=1Gi"
+      - "--cpu=2"
+      - "--port=8080"
+      - "--timeout=300s"
+
+substitutions:
+  _SERVICE_NAME: rescuegrid-ai
+  _REGION: us-central1
+  _REPO_NAME: rescuegrid
+  _IMAGE: "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_NAME}/${_SERVICE_NAME}"
+  _NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ""
+  _NEXT_PUBLIC_APP_URL: ""
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+images:
+  - "${_IMAGE}"
+
+timeout: 900s

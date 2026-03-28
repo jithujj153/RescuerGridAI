@@ -1,10 +1,8 @@
-// ─────────────────────────────────────────────────────────────
-// POST /api/route-plan — Traffic-aware evacuation routing
-// ─────────────────────────────────────────────────────────────
-
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { computeRoute } from "@/lib/maps/clients";
+import { logger } from "@/lib/logger";
+import { checkRateLimit, getRateLimitKey } from "@/lib/rate-limit";
 
 const RouteRequestSchema = z.object({
   origin: z.object({
@@ -18,8 +16,20 @@ const RouteRequestSchema = z.object({
   mode: z.enum(["evacuee", "responder"]).default("evacuee"),
 });
 
+const RATE_LIMIT = { maxRequests: 20, windowMs: 60_000 };
+
 export async function POST(request: NextRequest) {
+  const requestId = crypto.randomUUID();
+
   try {
+    const rl = checkRateLimit(`route:${getRateLimitKey(request)}`, RATE_LIMIT);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
+      );
+    }
+
     const body = await request.json();
     const validated = RouteRequestSchema.parse(body);
 
@@ -45,7 +55,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.error("Route API error:", error);
+    logger.error("Route API error", {
+      requestId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
     return NextResponse.json(
       { error: "Failed to compute route" },
       { status: 500 }

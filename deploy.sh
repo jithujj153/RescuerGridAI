@@ -16,6 +16,15 @@ echo "  Region:   ${REGION}"
 echo "  Image:    ${IMAGE}"
 echo "═══════════════════════════════════════════"
 
+# ─── Enable required APIs ────────────────────────
+echo "→ Enabling required Google Cloud APIs..."
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  --project="${PROJECT_ID}" --quiet
+
 # ─── Ensure Artifact Registry repo exists ───────
 echo "→ Ensuring Artifact Registry repository..."
 gcloud artifacts repositories describe "${REPO_NAME}" \
@@ -27,29 +36,13 @@ gcloud artifacts repositories create "${REPO_NAME}" \
   --repository-format=docker \
   --description="RescueGrid AI container images"
 
-# ─── Build with Cloud Build ─────────────────────
+# ─── Build with Cloud Build (passes NEXT_PUBLIC_* as build args) ──
 echo "→ Building container image via Cloud Build..."
 gcloud builds submit \
   --project="${PROJECT_ID}" \
-  --tag "${IMAGE}" \
-  --timeout=600s
-
-# ─── Deploy to Cloud Run ────────────────────────
-echo "→ Deploying to Cloud Run..."
-gcloud run deploy "${SERVICE_NAME}" \
-  --project="${PROJECT_ID}" \
-  --image="${IMAGE}" \
-  --region="${REGION}" \
-  --platform=managed \
-  --allow-unauthenticated \
-  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,GOOGLE_MAPS_API_KEY=maps-api-key:latest,GOOGLE_CLOUD_PROJECT_ID=gcp-project-id:latest" \
-  --cpu-boost \
-  --min-instances=0 \
-  --max-instances=10 \
-  --memory=1Gi \
-  --cpu=2 \
-  --port=8080 \
-  --timeout=300s
+  --config=cloudbuild.yaml \
+  --substitutions="_NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-},_NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-}" \
+  --timeout=900s
 
 # ─── Done ────────────────────────────────────────
 URL=$(gcloud run services describe "${SERVICE_NAME}" \
@@ -59,6 +52,6 @@ URL=$(gcloud run services describe "${SERVICE_NAME}" \
 
 echo ""
 echo "═══════════════════════════════════════════"
-echo "  ✅ Deployed successfully!"
-echo "  🌐 ${URL}"
+echo "  Deployed successfully!"
+echo "  ${URL}"
 echo "═══════════════════════════════════════════"

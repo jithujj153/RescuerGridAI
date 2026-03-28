@@ -22,6 +22,7 @@ export function InputPanel({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [audioTranscript, setAudioTranscript] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -30,7 +31,6 @@ export function InputPanel({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Auto-detect location on mount
   useEffect(() => {
     if (!userLocation && navigator.geolocation) {
       setLocationLoading(true);
@@ -50,7 +50,6 @@ export function InputPanel({
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Image handling ─────────────────────────────────────
   const handleImageSelect = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) return;
     if (file.size > 10 * 1024 * 1024) {
@@ -87,7 +86,6 @@ export function InputPanel({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
-  // ─── URL handling ───────────────────────────────────────
   const addUrl = useCallback(() => {
     if (newsUrl && newsUrls.length < 5) {
       try {
@@ -104,11 +102,38 @@ export function InputPanel({
     setNewsUrls((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // ─── Voice recording ───────────────────────────────────
+  const transcribeAudio = useCallback(async (audioBlob: Blob) => {
+    setIsTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "recording.webm");
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Transcription failed");
+      }
+
+      const data = await response.json();
+      setAudioTranscript(data.transcript || "(No speech detected)");
+    } catch {
+      setAudioTranscript("(Transcription failed — type your message manually)");
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, []);
+
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm",
+      });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -118,11 +143,8 @@ export function InputPanel({
 
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        // In a production app, we'd send audio to a Speech-to-Text API
-        // For the demo, we'll use the transcript text field
-        setAudioTranscript(
-          "(Voice recording captured — use text field for transcript)"
-        );
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        transcribeAudio(audioBlob);
       };
 
       mediaRecorder.start();
@@ -130,7 +152,7 @@ export function InputPanel({
     } catch {
       alert("Microphone access is required for voice recording");
     }
-  }, []);
+  }, [transcribeAudio]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current?.state === "recording") {
@@ -139,7 +161,6 @@ export function InputPanel({
     setIsRecording(false);
   }, []);
 
-  // ─── Submit ─────────────────────────────────────────────
   const handleSubmit = useCallback(() => {
     if (!text && !imageFile && !audioTranscript) return;
 
@@ -242,13 +263,17 @@ export function InputPanel({
           <button
             className={`voice-recorder__btn ${isRecording ? "voice-recorder__btn--recording" : ""}`}
             onClick={isRecording ? stopRecording : startRecording}
-            disabled={isAnalyzing}
+            disabled={isAnalyzing || isTranscribing}
             aria-label={isRecording ? "Stop recording" : "Start voice recording"}
           >
             {isRecording ? "⏹" : "🎙️"}
           </button>
-          <div className="voice-recorder__status">
-            {isRecording ? "Recording... tap to stop" : "Tap to record voice note"}
+          <div className="voice-recorder__status" aria-live="polite">
+            {isRecording
+              ? "Recording... tap to stop"
+              : isTranscribing
+                ? "Transcribing with Google Speech-to-Text..."
+                : "Tap to record voice note"}
           </div>
         </div>
         {audioTranscript && (
@@ -314,12 +339,12 @@ export function InputPanel({
       <div className="glass-card glass-card--elevated input-panel__section animate-fade-in" style={{ animationDelay: "200ms" }}>
         <div className="section-title">📍 Location</div>
         {locationLoading ? (
-          <div className="location-display">
+          <div className="location-display" aria-live="polite">
             <span>Detecting location...</span>
           </div>
         ) : userLocation ? (
           <div className="location-display">
-            <span>📍</span>
+            <span aria-hidden="true">📍</span>
             <span>
               {userLocation.lat.toFixed(4)}, {userLocation.lng.toFixed(4)}
             </span>

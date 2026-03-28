@@ -27,6 +27,6 @@ export function getGeminiClient(): GoogleGenAI {
 
 /** Model identifiers — centralized for easy version management */
 export const MODELS = {
-  FLASH: "gemini-2.5-flash-preview-05-20",
-  LIVE: "gemini-live-2.5-flash-native-audio",
+  FLASH: "gemini-2.5-flash",
+  LIVE: "gemini-2.5-flash-native-audio-preview-12-2025",
 } as const;

@@ -7,10 +7,11 @@ import type { GeoCoordinate } from "@/lib/types/incident";
 import type { NearbyPlace, PlaceCategory } from "@/lib/types/place";
 import type { EvacuationRoute } from "@/lib/types/route";
 import type { WeatherConditions } from "@/lib/types/weather";
+import { logger } from "@/lib/logger";
 
 function getMapsApiKey(): string {
-  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (!key) throw new Error("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not set");
+  const key = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+  if (!key) throw new Error("GOOGLE_MAPS_API_KEY is not set");
   return key;
 }
 
@@ -65,27 +66,31 @@ export async function searchNearbyPlaces(
   });
 
   if (!response.ok) {
-    console.error(`Places API error: ${response.status} ${await response.text()}`);
+    logger.error("Places API error", { status: response.status, body: await response.text() });
     return [];
   }
 
   const data = await response.json();
   return (data.places || []).map(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (p: any): NearbyPlace => ({
-      place_id: p.id || "",
-      name: p.displayName?.text || "Unknown",
-      address: p.formattedAddress || "",
-      location: {
-        lat: p.location?.latitude || 0,
-        lng: p.location?.longitude || 0,
-      },
-      distance_km: 0, // Computed client-side
-      category,
-      is_open: p.currentOpeningHours?.openNow ?? null,
-      phone: p.nationalPhoneNumber || undefined,
-      rating: p.rating || undefined,
-    })
+    (p: Record<string, unknown>): NearbyPlace => {
+      const displayName = p.displayName as Record<string, string> | undefined;
+      const location = p.location as Record<string, number> | undefined;
+      const hours = p.currentOpeningHours as Record<string, boolean> | undefined;
+      return {
+        place_id: (p.id as string) || "",
+        name: displayName?.text || "Unknown",
+        address: (p.formattedAddress as string) || "",
+        location: {
+          lat: location?.latitude || 0,
+          lng: location?.longitude || 0,
+        },
+        distance_km: 0,
+        category,
+        is_open: hours?.openNow ?? null,
+        phone: (p.nationalPhoneNumber as string) || undefined,
+        rating: (p.rating as number) || undefined,
+      };
+    }
   );
 }
 
@@ -126,7 +131,7 @@ export async function computeRoute(
   });
 
   if (!response.ok) {
-    console.error(`Routes API error: ${response.status}`);
+    logger.error("Routes API error", { status: response.status });
     return null;
   }
 
@@ -165,7 +170,7 @@ export async function getWeatherConditions(
     });
 
     if (!response.ok) {
-      console.error(`Weather API error: ${response.status}`);
+      logger.error("Weather API error", { status: response.status });
       return null;
     }
 
@@ -184,7 +189,7 @@ export async function getWeatherConditions(
       alerts: [],
     };
   } catch (error) {
-    console.error("Weather API error:", error);
+    logger.error("Weather API exception", { error: error instanceof Error ? error.message : "Unknown" });
     return null;
   }
 }
