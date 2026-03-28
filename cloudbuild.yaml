@@ -1,5 +1,4 @@
 steps:
-  # Build the container image with build-time args for NEXT_PUBLIC_* vars
   - name: "gcr.io/cloud-builders/docker"
     args:
       - "build"
@@ -8,22 +7,20 @@ steps:
       - "--build-arg"
       - "NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL}"
       - "-t"
-      - "${_IMAGE}"
+      - "us-central1-docker.pkg.dev/${PROJECT_ID}/rescuegrid/rescuegrid-ai"
       - "."
 
-  # Push to Artifact Registry
   - name: "gcr.io/cloud-builders/docker"
-    args: ["push", "${_IMAGE}"]
+    args: ["push", "us-central1-docker.pkg.dev/${PROJECT_ID}/rescuegrid/rescuegrid-ai"]
 
-  # Deploy to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: gcloud
     args:
       - "run"
       - "deploy"
-      - "${_SERVICE_NAME}"
-      - "--image=${_IMAGE}"
-      - "--region=${_REGION}"
+      - "rescuegrid-ai"
+      - "--image=us-central1-docker.pkg.dev/${PROJECT_ID}/rescuegrid/rescuegrid-ai"
+      - "--region=us-central1"
       - "--platform=managed"
       - "--allow-unauthenticated"
       - "--set-secrets=GEMINI_API_KEY=gemini-api-key:latest,GOOGLE_MAPS_API_KEY=maps-api-key:latest,GOOGLE_CLOUD_PROJECT_ID=gcp-project-id:latest"
@@ -36,10 +33,6 @@ steps:
       - "--timeout=300s"
 
 substitutions:
-  _SERVICE_NAME: rescuegrid-ai
-  _REGION: us-central1
-  _REPO_NAME: rescuegrid
-  _IMAGE: "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO_NAME}/${_SERVICE_NAME}"
   _NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ""
   _NEXT_PUBLIC_APP_URL: ""
 
@@ -48,6 +41,6 @@ options:
   machineType: E2_HIGHCPU_8
 
 images:
-  - "${_IMAGE}"
+  - "us-central1-docker.pkg.dev/${PROJECT_ID}/rescuegrid/rescuegrid-ai"
 
 timeout: 900s
